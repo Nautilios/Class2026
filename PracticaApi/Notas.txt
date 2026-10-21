@@ -1,0 +1,131 @@
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+
+app = FastAPI()
+
+luchadores = [
+    {"id": 1, "nombre": "Goku", "edad": 24, "victorias": 0, "estaEliminado": False},
+    {"id": 2, "nombre": "Vegeta", "edad": 32, "victorias": 0, "estaEliminado": False},
+    {"id": 3, "nombre": "Gohan", "edad": 17, "victorias": 0, "estaEliminado": False},
+    {"id": 4, "nombre": "Piccolo", "edad": 42, "victorias": 0, "estaEliminado": False},
+]
+
+combates = []
+
+
+class Luchador(BaseModel):
+    nombre: str
+    edad: int
+
+
+class CombateCrear(BaseModel):
+    luchador1Id: int
+    luchador2Id: int
+
+
+class ResultadoCombate(BaseModel):
+    ganadorId: int
+
+
+def buscar_luchadores(id: int):
+    for i in luchadores:
+        if i["id"] == id:
+            return i
+    raise HTTPException(status_code=404, detail="Luchador no encontrado")
+
+
+def buscar_combate(id: int):
+    for c in combates:
+        if c["id"] == id:
+            return c
+    raise HTTPException(status_code=404, detail="Combate no encontrado")
+
+
+@app.get("/luchadores")
+def lista_luchadores():
+    return luchadores
+
+
+@app.get("/luchadores/{id}")
+def obtener_luchador(id: int):
+    return buscar_luchadores(id)
+
+
+@app.post("/luchadores")
+def registrar_luchador(datos: Luchador):
+    nuevo = {
+        "id": len(luchadores) + 1,
+        "nombre": datos.nombre,
+        "edad": datos.edad,
+        "victorias": 0,
+        "estaEliminado": False,
+    }
+    luchadores.append(nuevo)
+    return nuevo
+
+
+@app.get("/combates")
+def lista_combates():
+    return combates
+
+
+@app.get("/combates/{id}")
+def obtener_combate(id: int):
+    return buscar_combate(id)
+
+
+@app.post("/combates")
+def programar_combate(datos: CombateCrear):
+    i1 = buscar_luchadores(datos.luchador1Id)
+    i2 = buscar_luchadores(datos.luchador2Id)
+
+    if datos.luchador1Id == datos.luchador2Id:
+        raise HTTPException(status_code=400, detail="No se puede programar un combate entre el mismo luchador")
+
+    if i1["estaEliminado"]:
+        raise HTTPException(status_code=400, detail="El luchador 1 está eliminado")
+    if i2["estaEliminado"]:
+        raise HTTPException(status_code=400, detail="El luchador 2 está eliminado")
+
+    for c in combates:
+        if not c["finalizado"]:
+            participantes = {c["luchador1Id"], c["luchador2Id"]}
+            if datos.luchador1Id in participantes or datos.luchador2Id in participantes:
+                raise HTTPException(status_code=400, detail="Uno de los luchadores ya tiene un combate pendiente")
+
+    nuevo = {
+        "id": len(combates) + 1,
+        "luchador1Id": datos.luchador1Id,
+        "luchador2Id": datos.luchador2Id,
+        "ganadorId": None,
+        "finalizado": False,
+    }
+    combates.append(nuevo)
+    return nuevo
+
+
+@app.put("/combates/{id}/resultado")
+def registrar_resultado(id: int, datos: ResultadoCombate):
+    combate = buscar_combate(id)
+
+    if combate["finalizado"]:
+        raise HTTPException(status_code=400, detail="El combate ya ha sido finalizado")
+
+    if datos.ganadorId not in (combate["luchador1Id"], combate["luchador2Id"]):
+        raise HTTPException(status_code=400, detail="El ganador debe ser uno de los luchadores del combate")
+
+    if datos.ganadorId == combate["luchador1Id"]:
+        perdedor_id = combate["luchador2Id"]
+    else:
+        perdedor_id = combate["luchador1Id"]
+
+    ganador = buscar_luchadores(datos.ganadorId)
+    perdedor = buscar_luchadores(perdedor_id)
+
+    ganador["victorias"] += 1
+    perdedor["estaEliminado"] = True
+
+    combate["ganadorId"] = datos.ganadorId
+    combate["finalizado"] = True
+
+    return combate
